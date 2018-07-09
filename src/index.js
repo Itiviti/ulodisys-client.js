@@ -67,21 +67,21 @@ export class OdisysClient extends EventEmitter {
   start({host = 'localhost', port = 2098, ...args}) {
     let client = net.connect({host, port}, () => {
       this.bindSocket(client)
+      this.logon({...args})
     });
     client.on('close', this.close.bind(this))
     client.on('error', this.error.bind(this))
-    this.logon({...args})
   }
-
+  
   
   logon({user, password, heartbeatInterval = 30000}) {
     this.hb = () => this.sendActionAsync({$: {type: 'heartbeat'}})
 
     this.sendActionAsync({$: {type: 'user.logon'}, user: {$:{id: user, password}}})
-        .then(() => {
-          this.emit('logged')
-          if (heartbeatInterval > 0) setInterval(hb, heartbeatInterval)
-        }, e => this.error(e))
+      .then(() => {
+        this.emit('logged')
+        if (heartbeatInterval > 0) this.hbtimeout = setInterval(this.hb, heartbeatInterval)
+      }, e => this.error(e))
   }
 
   close() {
@@ -91,10 +91,10 @@ export class OdisysClient extends EventEmitter {
 
   cleanup() {
     if (this.socket) {
-      this.socket.close()
+      this.socket.destroy()
       this.socket = undefined
     }
-    if (hb) clearInterval(hb)
+    if (this.hbtimeout) clearInterval(this.hbtimeout)
   }
 
   error(e) {
@@ -112,6 +112,7 @@ export class OdisysClient extends EventEmitter {
       this.socket.write('</msg>', 'ascii')
     } else {
       this.emit('error', `Can't send message (not connected): ${msg}`)
+      throw new Error(msg)
     }
   }
 
@@ -130,14 +131,18 @@ export class OdisysClient extends EventEmitter {
         }
       }
       this.on('message', cb)
-      this.send({action})
+      try {
+        this.send({ action })
+      } catch (err) {
+        this.removeListener('message', cb)
+      }
     });
   }
 
   // send the given request, returns a promise with an array of replies
   sendRequestAsync(request) {
     if (request.$.id === undefined) request.$.id = lastRequestId++
-    return new Promise(function(resolve, reject) {
+    return new Promise((resolve, reject) => {
       let cb = ({reply, rej}) => {
         let replies = []
         if (reply && reply.$.requestid == request.$.id) {
@@ -153,7 +158,11 @@ export class OdisysClient extends EventEmitter {
         }
       }
       this.on('message', cb)
-      this.send({request})
+      try {
+        this.send({ request })
+      } catch (error) {
+        this.removeListener('message', cb)
+      }
     });
   }
 }
