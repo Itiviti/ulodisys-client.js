@@ -70,9 +70,10 @@ export class OdisysClient extends EventEmitter {
     });
     client.on('close', this.close.bind(this))
     client.on('error', this.error.bind(this))
-    this.logon(...args)
+    this.logon({...args})
   }
 
+  
   logon({user, password, heartbeatInterval = 30000}) {
     this.hb = () => this.sendActionAsync({$: {type: 'heartbeat'}})
 
